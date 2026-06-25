@@ -4,7 +4,7 @@ build-backend = 'setuptools.build_meta'
 
 [project]
 name = 'energym'
-version = '0.1.0'
+version = '0.1.1'
 description = 'Gymnasium environment for simulating a prosumer energy node with battery energy storage system'
 readme = 'README.md'
 requires-python = '>=3.12'
@@ -23,6 +23,7 @@ dependencies = [
     'pandas>=1.5.0',
     'numpy>=1.21.0',
     'holidays>=0.34',
+    'pulp>=3.3.2',
 ]
 
 [project.optional-dependencies]
