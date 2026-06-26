@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-06-26
+
+### Fixed
+- Fixed action format and efficiency-aware battery constraints: charging/discharging power now properly accounts for efficiency losses in SOC calculations
+- MILP solver now perfectly matches environment execution with zero divergence in battery state trajectory
+- Corrected space-to-charge constraint to account for charging efficiency (eta_cha)
+- Corrected energy-available constraint to account for discharge efficiency (eta_dis)
+
 ## [0.1.1] - 2026-06-25
 
 ### Fixed

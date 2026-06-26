@@ -19,14 +19,15 @@ class EnergyStorageEnv(gym.Env):
 
     The environment simulates a prosumer with solar production, consumption, and a battery
     that can be charged/discharged to maximize energy arbitrage profit. The agent controls
-    the battery power request (normalized to [-1, 1]) which is scaled internally using
-    the battery's nominal power. 
+    the net battery power (normalized to [-1, 1]), which is scaled internally using
+    the battery's nominal power.
 
     Attributes:
         observation_space: Box space of shape (12,) with element-wise bounds in [-1.0, 1.0] for
             time features, and [0.0, 1.0] for SOC and normalized production/consumption/prices,
             and 'is_holiday' flag.
-        action_space: Box space of shape (1,) representing normalized power in [-1.0, 1.0].
+        action_space: Box space of shape (1,) representing normalized net power in [-1.0, 1.0].
+            Positive values request charging, negative values request discharging.
     """
 
     metadata = {'render_modes': []}
@@ -53,6 +54,10 @@ class EnergyStorageEnv(gym.Env):
 
         Raises:
             ValueError: If battery parameters or time step are invalid.
+
+        Note:
+            Action format: normalized net power in [-1, 1].
+            Denormalized using p_nom = capacity / delta_t.
         """
         self.csv_path = csv_path
         self.delta_t = delta_t
@@ -125,7 +130,8 @@ class EnergyStorageEnv(gym.Env):
         ], dtype=np.float32)
         self.observation_space = spaces.Box(low=obs_low, high=obs_high, dtype=np.float32)
 
-        # action space: normalized to [-1, 1], scaled internally to [-p_nom, p_nom]
+        # action space: normalized net power in [-1, 1]
+        # positive = charge, negative = discharge
         self.action_space = spaces.Box(
             low=-1.0, high=1.0, shape=(1,), dtype=np.float32
         )
@@ -168,13 +174,14 @@ class EnergyStorageEnv(gym.Env):
             consumption: Consumption at current step in kW.
             sell_price: Selling price in €/kWh.
             buy_price: Buying price in €/kWh.
-            profit: Profit from energy export minus import in €.
-            usage_cost: Cost from battery usage in €.
             violation: Constraint violation magnitude in kW.
 
         Returns:
             Dictionary with step information.
         """
+        usage_cost = self.usage_price * self.delta_t * (
+            self.eta_cha * p_cha - (1 / self.eta_dis) * p_dis
+        )
         return {
             'timestep': self.current_timestep,
             'soc': self.soc,
@@ -187,10 +194,8 @@ class EnergyStorageEnv(gym.Env):
             'consumption': consumption,
             'sell_price': sell_price,
             'buy_price': buy_price,
-            'profit': sell_price * energy_export - buy_price * energy_import,
-            'usage_cost': self.usage_price * self.delta_t * (
-                self.eta_cha * p_cha - (1 / self.eta_dis) * p_dis
-            ),
+            'profit': sell_price * energy_export - buy_price * energy_import - usage_cost,
+            'usage_cost': usage_cost,
             'violation': violation,
         }
 
@@ -226,8 +231,8 @@ class EnergyStorageEnv(gym.Env):
         """Execute one step of the environment.
 
         Args:
-            action: Normalized power request in [-1.0, 1.0]. Shape (1,) or scalar.
-                Internally scaled to [-p_nom, p_nom] and clipped to feasible bounds.
+            action: Normalized net power in [-1.0, 1.0]. Positive = charge, negative = discharge.
+                Shape (1,) or scalar. Internally scaled to [-p_nom, p_nom] and clipped to feasible bounds.
 
         Returns:
             Tuple of (observation, reward, terminated, truncated, info).
@@ -306,7 +311,7 @@ class EnergyStorageEnv(gym.Env):
 
         Returns:
             Tuple of:
-                - np.ndarray: Optimal normalized actions of shape (T,) in [-1, 1].
+                - np.ndarray: Optimal normalized net power actions of shape (T,) in [-1, 1].
                 - pd.DataFrame: Detailed MILP solution with soc, power_charge,
                     power_discharge, energy_export, energy_import, net_profit.
 
@@ -319,11 +324,11 @@ class EnergyStorageEnv(gym.Env):
                 delta_t=self.delta_t,
                 battery_config=self.battery_config,
                 usage_price=self.usage_price,
+                initial_soc=config.INITIAL_SOC
             )
 
-            # normalize power actions to [-1, 1] by computing net power
-            # net_power = power_discharge - power_charge (positive = discharge)
-            net_power = df_solution['power_discharge'].values - df_solution['power_charge'].values
+            # compute net power actions and normalize to [-1, 1]
+            net_power = df_solution['power_charge'].values - df_solution['power_discharge'].values
             optimal_actions = net_power / self.p_nom
 
             # clip to valid action range

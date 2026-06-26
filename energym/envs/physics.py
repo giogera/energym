@@ -44,7 +44,7 @@ class BatteryPhysics:
         production: float,
         soc: float
     ) -> tuple[float, float]:
-        """Compute feasible power action respecting all constraints.
+        """Compute feasible net power action respecting all constraints.
 
         Constraints considered:
         - Maximum chargeable power (p_cha_max) and battery capacity bounds
@@ -53,21 +53,24 @@ class BatteryPhysics:
         - SOC limits due to depth of discharge
 
         Args:
-            scaled_action: Denormalized power action in [-p_nom, p_nom].
+            scaled_action: Denormalized net power in [-p_nom, p_nom]. Positive for charging,
+                negative for discharging.
             production: Production at this timestep in kW.
             soc: Current state of charge.
 
         Returns:
             Tuple of (feasible_action, violation) where violation quantifies how much
-            the original scaled_action exceeded feasible bounds.
+            the original action exceeded feasible bounds.
         """
         # max chargeable power: limited by battery, production, and SOC headroom
-        space_to_charge = (self.soc_max - soc) * self.capacity / self.delta_t
+        # accounts for charging efficiency: delta_soc = (1/C) * eta_cha * p_cha * dt
+        space_to_charge = (self.soc_max - soc) * self.capacity / self.eta_cha / self.delta_t
         p_cha_max_feasible = min(self.p_cha_max, production, space_to_charge)
 
         # max dischargeable power: limited by battery and SOC floor
+        # accounts for discharge efficiency: delta_soc = -(1/C) * (1/eta_dis) * p_dis * dt
         energy_available = (soc - self.soc_min) * self.capacity
-        p_dis_max_feasible = min(self.p_dis_max, energy_available / self.delta_t)
+        p_dis_max_feasible = min(self.p_dis_max, energy_available * self.eta_dis / self.delta_t)
 
         # clip action to feasible range
         feasible_action = float(np.clip(
@@ -90,17 +93,17 @@ class BatteryPhysics:
         production: float,
         consumption: float
     ) -> tuple[float, float, float, float]:
-        """Compute actual charging/discharging power and energy export/import.
+        """Compute charging/discharging power and energy export/import from net action.
 
         The power balance equation is:
             energy_export/dt - energy_import/dt - production + consumption - p_dis + p_cha = 0
 
-        Given an action (requested power):
-            - If action > 0: charge the battery (p_cha > 0)
-            - If action < 0: discharge the battery (p_dis > 0)
+        Given a net action (positive for charging, negative for discharging):
+            - p_cha = max(0, action)
+            - p_dis = max(0, -action)
 
         Args:
-            action: Requested power (positive for charging, negative for discharging) in kW.
+            action: Net power action (positive for charging, negative for discharging) in kW.
             production: Production at this timestep in kW.
             consumption: Consumption at this timestep in kW.
 
@@ -110,7 +113,7 @@ class BatteryPhysics:
         p_cha = max(0.0, action)
         p_dis = max(0.0, -action)
 
-        # power balance: energy_export/dt - energy_import/dt = 
+        # power balance: energy_export/dt - energy_import/dt =
         #   = production - consumption + p_dis - p_cha
         net_power = production - consumption + p_dis - p_cha
 
