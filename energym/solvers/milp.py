@@ -10,7 +10,8 @@ def milp_solver(
     csv_path: str,
     delta_t: float,
     battery_config: dict[str, float],
-    usage_price: float = 0.001
+    usage_price: float = 0.001,
+    initial_soc: float = 0.5
 ) -> pd.DataFrame:
     """Solve mixed integer linear program to maximize net energy profit.
 
@@ -29,6 +30,7 @@ def milp_solver(
             - power_discharge_max: Maximum discharging power in kW.
             - dod_max: Maximum depth of discharge in percentage (0 < DoD <= 100).
         usage_price: Price for energy usage in €/kWh. Defaults to 0.001.
+        initial_soc: Initial state of charge (0 <= initial_soc <= 1). Defaults to 0.5.
 
     Returns:
         DataFrame with optimal actions: datetime, production, consumption,
@@ -52,8 +54,8 @@ def milp_solver(
     P_max_cha = battery_config['power_charge_max']
     P_max_dis = battery_config['power_discharge_max']
     DoD_max = battery_config['dod_max'] / 100.0
-    S_ini = 0.5
-    S_end = 0.5
+    S_ini = initial_soc
+    S_end = S_ini
     pi_w = usage_price
 
     # time horizon
